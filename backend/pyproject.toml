@@ -16,6 +16,13 @@ dependencies = [
 [project.scripts]
 diarist-api = "diarist.main:main"
 
+[project.optional-dependencies]
+# Apple Silicon only (Metal via MLX). Only installs on macOS arm64; only
+# usable running natively (never inside Docker -- see devices.py). Install
+# with `uv sync --extra mlx` and run with WHISPER_BACKEND=mlx (or leave it
+# on "auto", which selects mlx automatically when available).
+mlx = ["mlx-whisper>=0.4.3,<0.5"]
+
 [dependency-groups]
 dev = [
   "pytest>=8.4,<9",

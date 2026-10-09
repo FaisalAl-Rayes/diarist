@@ -1,0 +1,20 @@
+# GPU override for a Linux host with an NVIDIA GPU and the NVIDIA Container
+# Toolkit installed (https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+#
+# Usage:
+#   docker compose -f docker-compose.yaml -f docker-compose.gpu.yaml up --build
+#
+# Without this file, `docker compose up` still works -- it just runs
+# Whisper and pyannote on CPU (the backend auto-detects CUDA's absence and
+# falls back on its own). This file is what actually gives the container
+# access to the GPU in the first place; the backend can't use a GPU Docker
+# never exposed to it.
+services:
+  backend:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

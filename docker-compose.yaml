@@ -1,3 +1,14 @@
+# Default: works on any Docker host (Mac, Linux, Windows/WSL2), CPU-only.
+# The backend auto-detects CUDA at runtime and uses it if present -- but
+# without a GPU reservation here, Docker never exposes one to the container
+# even if the host has an NVIDIA card. For real GPU speed on a Linux host
+# with the NVIDIA Container Toolkit installed, layer the GPU override:
+#
+#   docker compose -f docker-compose.yaml -f docker-compose.gpu.yaml up --build
+#
+# On Apple Silicon, neither mode gives you MLX/Metal acceleration -- Docker
+# Desktop's Linux VM has no Metal passthrough, on any host. For that, run
+# the backend natively instead of in Docker; see backend/README.md.
 services:
   backend:
     build: ./backend
@@ -6,24 +17,13 @@ services:
       HF_HOME: /data/models
       JOB_DATA_DIR: /data/jobs
       WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
-      WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
-      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-float16}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-auto}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-auto}
       DIARIZATION_MODEL: ${DIARIZATION_MODEL:-pyannote/speaker-diarization-community-1}
-      DIARIZATION_DEVICE: ${DIARIZATION_DEVICE:-cuda}
+      DIARIZATION_DEVICE: ${DIARIZATION_DEVICE:-auto}
     volumes:
       - model-cache:/data/models
       - job-data:/data/jobs
-    # Remove this block to run CPU-only (e.g. for local smoke-testing without
-    # a GPU) -- real transcription needs an NVIDIA GPU + the NVIDIA Container
-    # Toolkit (https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
-    # installed on the Docker host.
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     restart: unless-stopped
 
   frontend:
