@@ -15,11 +15,21 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
-      python3.11 \
-      python3.11-venv \
-      python3-pip \
+      software-properties-common \
       ffmpeg \
-      ca-certificates
+      ca-certificates \
+    # Ubuntu 22.04's own archive permanently ships python3.11 as the
+    # 3.11.0~rc1 preview package (never updated to a real release -- jammy
+    # shipped with 3.10 as default and only ever previewed 3.11). That rc1
+    # build is missing stdlib APIs added late in the 3.11 cycle (e.g.
+    # sys.get_int_max_str_digits), which torch's import-time polyfills
+    # require -- it fails with AttributeError as soon as anything imports
+    # torch._dynamo. Pull a real, current Python 3.11 from deadsnakes
+    # instead.
+    && add-apt-repository -y ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
+      python3.11 \
+      python3.11-venv
 
 RUN python3.11 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
