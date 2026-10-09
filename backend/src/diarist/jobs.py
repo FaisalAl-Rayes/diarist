@@ -48,6 +48,8 @@ class JobRecord:
     created_at: str
     options: JobOptions
     updated_at: str = ""
+    started_at: str | None = None
+    completed_at: str | None = None
     error: str | None = None
     transcript: dict[str, Any] | None = None
 
@@ -58,6 +60,8 @@ class JobRecord:
             "status": self.status,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
             "options": {
                 "language": self.options.language,
                 "speakers": self.options.speakers,
@@ -76,6 +80,8 @@ class JobRecord:
             status=data["status"],
             created_at=str(data["created_at"]),
             updated_at=str(data.get("updated_at", "")),
+            started_at=data.get("started_at"),
+            completed_at=data.get("completed_at"),
             options=JobOptions(
                 language=options.get("language"),
                 speakers=options.get("speakers"),
@@ -244,6 +250,7 @@ class JobManager:
         with self._lock:
             record = self._read_record(job_id)
             record.status = "processing"
+            record.started_at = _now()
             record.error = None
             self._write_record(record)
 
@@ -284,6 +291,7 @@ class JobManager:
         with self._lock:
             record = self._read_record(job_id)
             record.status = "completed"
+            record.completed_at = _now()
             record.transcript = transcript.to_dict()
             self._write_record(record)
 
@@ -291,5 +299,6 @@ class JobManager:
         with self._lock:
             record = self._read_record(job_id)
             record.status = "failed"
+            record.completed_at = _now()
             record.error = message
             self._write_record(record)

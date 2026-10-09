@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { DeleteJobButton } from "@/components/delete-job-button";
 import { JobStatusBadge } from "@/components/job-status-badge";
 import {
   Empty,
@@ -21,7 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatRelativeTime } from "@/lib/format";
+import { formatJobDuration, formatRelativeTime } from "@/lib/format";
 import type { Job } from "@/lib/types";
 import { AudioLinesIcon } from "lucide-react";
 
@@ -81,7 +82,9 @@ export function JobsTable({ initialJobs }: { initialJobs: Job[] }) {
           <TableHead>File</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Language</TableHead>
+          <TableHead>Duration</TableHead>
           <TableHead>Started</TableHead>
+          <TableHead className="w-10" />
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -99,7 +102,17 @@ export function JobsTable({ initialJobs }: { initialJobs: Job[] }) {
               {job.transcript?.language ?? job.options.language ?? "auto"}
             </TableCell>
             <TableCell className="text-muted-foreground">
+              {formatJobDuration(job.started_at, job.completed_at) ?? "\u2013"}
+            </TableCell>
+            <TableCell className="text-muted-foreground">
               {formatRelativeTime(job.created_at)}
+            </TableCell>
+            <TableCell>
+              <DeleteJobButton
+                jobId={job.id}
+                filename={job.original_filename}
+                onDeleted={() => setJobs((current) => current.filter((j) => j.id !== job.id))}
+              />
             </TableCell>
           </TableRow>
         ))}

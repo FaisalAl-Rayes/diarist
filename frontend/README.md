@@ -1,9 +1,11 @@
 # Diarist — Frontend
 
 Next.js (App Router) + [shadcn/ui](https://ui.shadcn.com) dashboard for the
-transcription backend. Upload audio, pick a language (or auto-detect) and
-optional speaker count, watch job status, and download the finished
-transcript as JSON or DOCX.
+transcription backend. Upload audio (click or drag-and-drop), pick a
+language (or auto-detect) and optional speaker count, watch job status and
+processing time, download the finished transcript as JSON or DOCX, and
+delete jobs you no longer need. Light/dark/system theme, following the OS
+by default.
 
 The backend is never called directly from the browser. Every request goes
 through this app's own route handlers (`src/app/api/**`), which forward to

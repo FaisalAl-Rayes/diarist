@@ -66,8 +66,9 @@ On Apple Silicon, `uv sync --extra mlx` first and set `WHISPER_BACKEND=mlx`
 - `POST /api/jobs` — multipart upload: `file`, optional `language` (default
   `en`; pass `auto` for language auto-detection), `speakers`, `initial_prompt`
 - `GET /api/jobs` — most recent first
-- `GET /api/jobs/{id}`
-- `DELETE /api/jobs/{id}`
+- `GET /api/jobs/{id}` — includes `started_at`/`completed_at` (both `null`
+  until processing begins/ends; subtract them for processing time)
+- `DELETE /api/jobs/{id}` — deletes the job's input, output, and state
 - `GET /api/jobs/{id}/download/json`
 - `GET /api/jobs/{id}/download/docx`
 

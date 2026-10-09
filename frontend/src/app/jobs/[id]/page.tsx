@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { JobDetail } from "@/components/job-detail";
+import { ModeToggle } from "@/components/mode-toggle";
 import { BackendError, backendJson } from "@/lib/backend";
 import type { Job } from "@/lib/types";
 import { ArrowLeftIcon } from "lucide-react";
@@ -25,13 +26,16 @@ export default async function JobPage({
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-10">
-      <Link
-        href="/"
-        className="flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeftIcon className="size-4" />
-        All jobs
-      </Link>
+      <div className="flex items-center justify-between gap-3">
+        <Link
+          href="/"
+          className="flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeftIcon className="size-4" />
+          All jobs
+        </Link>
+        <ModeToggle />
+      </div>
       <JobDetail initialJob={job} />
     </main>
   );

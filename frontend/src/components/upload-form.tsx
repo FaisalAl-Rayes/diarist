@@ -10,6 +10,7 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
+import { FileUpload } from "@/components/file-upload";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -84,14 +85,7 @@ export function UploadForm() {
       <FieldGroup>
         <Field>
           <FieldLabel htmlFor="audio-file">Audio file</FieldLabel>
-          <Input
-            id="audio-file"
-            type="file"
-            accept=".m4a,.mp3,.wav"
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-            required
-          />
-          <FieldDescription>.m4a, .mp3, or .wav</FieldDescription>
+          <FileUpload id="audio-file" file={file} onFileChange={setFile} />
         </Field>
 
         <Field orientation="responsive">

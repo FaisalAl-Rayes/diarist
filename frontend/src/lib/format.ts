@@ -18,3 +18,13 @@ export function formatRelativeTime(isoTimestamp: string): string {
   const diffDays = Math.round(diffHours / 24);
   return `${diffDays}d ago`;
 }
+
+/** Processing time between a job's started_at and completed_at, e.g. "42s" or "3m 12s". */
+export function formatJobDuration(startedAt: string | null, completedAt: string | null): string | null {
+  if (!startedAt || !completedAt) return null;
+  const seconds = Math.max(0, Math.round((new Date(completedAt).getTime() - new Date(startedAt).getTime()) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
+}

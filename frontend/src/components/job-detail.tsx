@@ -1,7 +1,9 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { DeleteJobButton } from "@/components/delete-job-button";
 import { JobStatusBadge } from "@/components/job-status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +11,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
-import { formatTimestamp } from "@/lib/format";
+import { formatJobDuration, formatTimestamp } from "@/lib/format";
 import type { Job } from "@/lib/types";
 import { DownloadIcon, TriangleAlertIcon } from "lucide-react";
 
@@ -17,6 +19,7 @@ const POLL_INTERVAL_MS = 3000;
 const ACTIVE_STATUSES = new Set(["queued", "processing"]);
 
 export function JobDetail({ initialJob }: { initialJob: Job }) {
+  const router = useRouter();
   const [job, setJob] = useState(initialJob);
 
   useEffect(() => {
@@ -32,6 +35,8 @@ export function JobDetail({ initialJob }: { initialJob: Job }) {
     return () => clearInterval(interval);
   }, [job.id, job.status]);
 
+  const processedIn = formatJobDuration(job.started_at, job.completed_at);
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -39,7 +44,14 @@ export function JobDetail({ initialJob }: { initialJob: Job }) {
           <h1 className="text-lg font-medium">{job.original_filename}</h1>
           <p className="text-sm text-muted-foreground">Job {job.id}</p>
         </div>
-        <JobStatusBadge status={job.status} />
+        <div className="flex items-center gap-2">
+          <JobStatusBadge status={job.status} />
+          <DeleteJobButton
+            jobId={job.id}
+            filename={job.original_filename}
+            onDeleted={() => router.push("/")}
+          />
+        </div>
       </div>
 
       {job.status === "failed" && (
@@ -69,8 +81,9 @@ export function JobDetail({ initialJob }: { initialJob: Job }) {
             <CardHeader>
               <CardTitle>Summary</CardTitle>
             </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
-              <Summary label="Duration" value={formatTimestamp(job.transcript.duration)} />
+            <CardContent className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-5">
+              <Summary label="Audio length" value={formatTimestamp(job.transcript.duration)} />
+              {processedIn && <Summary label="Processed in" value={processedIn} />}
               <Summary label="Language" value={job.transcript.language.toUpperCase()} />
               <Summary label="Speakers" value={String(job.transcript.speakers.length)} />
               <Summary label="Model" value={job.transcript.models.transcription} />

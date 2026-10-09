@@ -41,6 +41,8 @@ export interface Job {
   status: JobStatus;
   created_at: string;
   updated_at: string;
+  started_at: string | null;
+  completed_at: string | null;
   options: JobOptions;
   error: string | null;
   transcript: Transcript | null;
