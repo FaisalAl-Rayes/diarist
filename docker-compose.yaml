@@ -1,0 +1,41 @@
+services:
+  backend:
+    build: ./backend
+    environment:
+      HF_TOKEN: ${HF_TOKEN:?Set HF_TOKEN in .env -- see backend/.env.example}
+      HF_HOME: /data/models
+      JOB_DATA_DIR: /data/jobs
+      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
+      WHISPER_DEVICE: ${WHISPER_DEVICE:-cuda}
+      WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-float16}
+      DIARIZATION_MODEL: ${DIARIZATION_MODEL:-pyannote/speaker-diarization-community-1}
+      DIARIZATION_DEVICE: ${DIARIZATION_DEVICE:-cuda}
+    volumes:
+      - model-cache:/data/models
+      - job-data:/data/jobs
+    # Remove this block to run CPU-only (e.g. for local smoke-testing without
+    # a GPU) -- real transcription needs an NVIDIA GPU + the NVIDIA Container
+    # Toolkit (https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+    # installed on the Docker host.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    environment:
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  model-cache:
+  job-data:

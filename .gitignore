@@ -1,0 +1,10 @@
+.DS_Store
+.env
+
+# Scratch directories for manually testing the backend locally (sample
+# input audio, ad-hoc output artifacts). Generated content only; the
+# directories themselves are tracked via .gitkeep.
+input/*
+!input/.gitkeep
+output/*
+!output/.gitkeep
