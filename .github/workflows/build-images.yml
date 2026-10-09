@@ -45,8 +45,16 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=backend
-          cache-to: type=gha,mode=max,scope=backend
+          # GitHub's `type=gha` cache backend caps out at 10GB per repo with
+          # LRU eviction -- easy to blow through with a CUDA + torch +
+          # pyannote image, which just means slow cache exports now and
+          # evicted (so: useless) cache later. Registry-based caching has no
+          # such cap; it's just ordinary GHCR storage (free for public
+          # repos). The Dockerfile's BuildKit pip cache mounts do most of
+          # the actual speedup work here regardless of which layer-cache
+          # backend is used.
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/diarist-backend:buildcache
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/diarist-backend:buildcache,mode=min
 
   frontend:
     runs-on: ubuntu-latest
