@@ -1,3 +1,5 @@
+<img src="frontend/public/logo.svg" alt="Diarist" width="56" height="56" />
+
 # Diarist
 
 A self-hosted, local-first multi-speaker transcription web app. Upload a

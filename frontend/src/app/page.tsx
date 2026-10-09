@@ -12,11 +12,15 @@ export default async function HomePage() {
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-10">
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-medium">Diarist</h1>
-          <p className="text-sm text-muted-foreground">
-            Upload a recording to get a word-timestamped, speaker-labeled transcript.
-          </p>
+        <div className="flex items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element -- tiny static SVG mark, no benefit from next/image */}
+          <img src="/logo.svg" alt="" className="size-9 shrink-0" />
+          <div>
+            <h1 className="text-xl font-medium">Diarist</h1>
+            <p className="text-sm text-muted-foreground">
+              Upload a recording to get a word-timestamped, speaker-labeled transcript.
+            </p>
+          </div>
         </div>
         <ModeToggle />
       </div>
