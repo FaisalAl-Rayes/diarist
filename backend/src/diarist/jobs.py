@@ -132,14 +132,35 @@ class JobManager:
         except FileNotFoundError as exc:
             raise JobError(f"Job not found: {job_id}") from exc
 
+    def _iter_job_dirs(self) -> list[Path]:
+        """List job directories, tolerating filesystem cruft.
+
+        Fresh ext4 volumes (common on container storage/CSI backends) can
+        contain reserved entries like `lost+found`, owned by root and
+        unreadable by this process's non-root user. A single unreadable or
+        malformed entry must not crash startup or job listing for everyone
+        else.
+        """
+        job_dirs = []
+        for entry in sorted(self.data_dir.iterdir()):
+            if entry.name == "lost+found":
+                continue
+            try:
+                if not entry.is_dir():
+                    continue
+                if not (entry / JOB_FILE).exists():
+                    continue
+            except OSError:
+                logger.warning("Skipping unreadable entry in %s: %s", self.data_dir, entry.name)
+                continue
+            job_dirs.append(entry)
+        return job_dirs
+
     def _resume_pending_jobs(self) -> None:
         """Re-enqueue jobs left queued/processing by an earlier pod."""
         if not self.data_dir.exists():
             return
-        for job_dir in sorted(self.data_dir.iterdir()):
-            job_file = job_dir / JOB_FILE
-            if not job_file.exists():
-                continue
+        for job_dir in self._iter_job_dirs():
             record = self._read_record(job_dir.name)
             if record.status in ("queued", "processing"):
                 record.status = "queued"
@@ -189,11 +210,8 @@ class JobManager:
     def list_jobs(self) -> list[JobRecord]:
         if not self.data_dir.exists():
             return []
-        records = []
-        for job_dir in self.data_dir.iterdir():
-            if (job_dir / JOB_FILE).exists():
-                with self._lock:
-                    records.append(self._read_record(job_dir.name))
+        with self._lock:
+            records = [self._read_record(job_dir.name) for job_dir in self._iter_job_dirs()]
         return sorted(records, key=lambda record: record.created_at, reverse=True)
 
     def output_path(self, job_id: str, kind: Literal["json", "docx"]) -> Path:
