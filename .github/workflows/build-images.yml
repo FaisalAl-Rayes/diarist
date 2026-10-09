@@ -29,6 +29,10 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Compute lowercase image owner
+        id: owner
+        run: echo "lower=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -52,9 +56,10 @@ jobs:
           # such cap; it's just ordinary GHCR storage (free for public
           # repos). The Dockerfile's BuildKit pip cache mounts do most of
           # the actual speedup work here regardless of which layer-cache
-          # backend is used.
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository_owner }}/diarist-backend:buildcache
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository_owner }}/diarist-backend:buildcache,mode=min
+          # backend is used. GHCR repo refs must be lowercase, unlike
+          # github.repository_owner, hence the separate step above.
+          cache-from: type=registry,ref=ghcr.io/${{ steps.owner.outputs.lower }}/diarist-backend:buildcache
+          cache-to: type=registry,ref=ghcr.io/${{ steps.owner.outputs.lower }}/diarist-backend:buildcache,mode=min
 
   frontend:
     runs-on: ubuntu-latest
