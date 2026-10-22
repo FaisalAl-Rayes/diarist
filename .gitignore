@@ -5,6 +5,21 @@
 __pycache__/
 *.py[cod]
 
+# Local coding-agent configuration, instructions, and installed skills.
+.agents/
+.claude/
+.codex/
+.cursor/
+.gemini/
+.opencode/
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+.cursorrules
+.windsurfrules
+.github/copilot-instructions.md
+skills-lock.json
+
 # Scratch directories for manually testing the backend locally (sample
 # input audio, ad-hoc output artifacts). Generated content only; the
 # directories themselves are tracked via .gitkeep.
