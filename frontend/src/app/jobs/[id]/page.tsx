@@ -1,3 +1,5 @@
+import { auth } from "@clerk/nextjs/server";
+import { AccountControls } from "@/components/account-controls";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -13,6 +15,7 @@ export default async function JobPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await auth.protect();
   const { id } = await params;
   let job: Job;
   try {
@@ -34,7 +37,10 @@ export default async function JobPage({
           <ArrowLeftIcon className="size-4" />
           All jobs
         </Link>
-        <ModeToggle />
+        <div className="flex items-center gap-2">
+          <ModeToggle />
+          <AccountControls />
+        </div>
       </div>
       <JobDetail initialJob={job} />
     </main>

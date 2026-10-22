@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { BackendError, backendFetch } from "@/lib/backend";
+import { backendFetch } from "@/lib/backend";
+import { apiError, PRIVATE_HEADERS, privateJson, requireApiSession } from "@/lib/api-security";
 
 const CONTENT_TYPES: Record<string, string> = {
   json: "application/json",
@@ -11,25 +12,25 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string; kind: string }> },
 ) {
-  const { id, kind } = await params;
-  if (kind !== "json" && kind !== "docx") {
-    return NextResponse.json({ error: "Unknown download kind." }, { status: 400 });
-  }
   try {
+    await requireApiSession();
+    const { id, kind } = await params;
+    if (kind !== "json" && kind !== "docx") {
+      return privateJson({ error: "Unknown download kind." }, 400);
+    }
     const response = await backendFetch(
       `/api/jobs/${encodeURIComponent(id)}/download/${kind}`,
     );
     const body = await response.arrayBuffer();
     return new NextResponse(body, {
       headers: {
+        ...PRIVATE_HEADERS,
         "Content-Type": CONTENT_TYPES[kind],
-        "Content-Disposition": `attachment; filename="${id}-transcript.${kind}"`,
+        "Content-Disposition": `attachment; filename="${id.replace(/[^a-zA-Z0-9_-]/g, "_")}-transcript.${kind}"`,
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (error) {
-    if (error instanceof BackendError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    }
-    throw error;
+    return apiError(error);
   }
 }

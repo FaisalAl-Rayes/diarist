@@ -39,8 +39,21 @@ export function UploadForm() {
 
   useEffect(() => {
     fetch("/api/languages")
-      .then((response) => response.json())
-      .then((data: Language[]) => setLanguages(data))
+      .then((response) => {
+        if (!response.ok) throw new Error("Could not load languages.");
+        return response.json();
+      })
+      .then((data: unknown) => {
+        if (
+          Array.isArray(data) &&
+          data.every((item): item is Language =>
+            item !== null && typeof item === "object" &&
+            typeof item.code === "string" && typeof item.name === "string"
+          )
+        ) {
+          setLanguages(data);
+        }
+      })
       .catch(() => {
         // Keep the "Detect automatically" fallback; the picker still works.
       });

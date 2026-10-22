@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, BinaryIO
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import StreamingResponse
 
+from .auth import authenticated_user
 from .jobs import JobError, JobManager
 from .languages import SUPPORTED_LANGUAGES
 from .transcribe import TranscriptionEngine
@@ -25,8 +27,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_engine = TranscriptionEngine()
-_jobs = JobManager(JOB_DATA_DIR, _engine)
+_manager: JobManager | None = None
+_manager_lock = threading.Lock()
+
+
+def get_job_manager() -> JobManager:
+    global _manager
+    # functools.cache alone allows concurrent first calls to initialize multiple
+    # workers on the same files. Initialization must be serialized too.
+    with _manager_lock:
+        if _manager is None:
+            _manager = JobManager(JOB_DATA_DIR, TranscriptionEngine())
+        return _manager
+
+
+Owner = Annotated[str, Depends(authenticated_user)]
+Jobs = Annotated[JobManager, Depends(get_job_manager)]
+
+
+@app.middleware("http")
+async def private_job_responses(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path == "/api/jobs" or request.url.path.startswith("/api/jobs/"):
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers.append("Vary", "Authorization")
+    return response
 
 
 @app.get("/api/health")
@@ -43,6 +68,8 @@ def languages() -> list[dict[str, str]]:
 
 @app.post("/api/jobs", status_code=201)
 async def create_job(
+    owner_id: Owner,
+    jobs: Jobs,
     file: Annotated[UploadFile, File()],
     language: Annotated[str, Form()] = "en",
     speakers: Annotated[int | None, Form()] = None,
@@ -54,7 +81,8 @@ async def create_job(
     if not content:
         raise HTTPException(400, "Uploaded file is empty.")
     try:
-        record = _jobs.create_job(
+        record = jobs.create_job(
+            owner_id=owner_id,
             filename=file.filename or "audio",
             content=content,
             language=language,
@@ -67,43 +95,61 @@ async def create_job(
 
 
 @app.get("/api/jobs")
-def list_jobs() -> list[dict]:
-    return [record.to_dict() for record in _jobs.list_jobs()]
+def list_jobs(owner_id: Owner, jobs: Jobs) -> list[dict]:
+    return [record.to_dict() for record in jobs.list_jobs(owner_id=owner_id)]
 
 
 @app.get("/api/jobs/{job_id}")
-def get_job(job_id: str) -> dict:
+def get_job(job_id: str, owner_id: Owner, jobs: Jobs) -> dict:
     try:
-        return _jobs.get_job(job_id).to_dict()
+        return jobs.get_job(job_id, owner_id=owner_id).to_dict()
     except JobError as exc:
         raise HTTPException(404, str(exc)) from exc
 
 
 @app.delete("/api/jobs/{job_id}", status_code=204)
-def delete_job(job_id: str) -> None:
+def delete_job(job_id: str, owner_id: Owner, jobs: Jobs) -> None:
     try:
-        _jobs.delete_job(job_id)
+        jobs.delete_job(job_id, owner_id=owner_id)
     except JobError as exc:
         raise HTTPException(404, str(exc)) from exc
+
+
+class DownloadResponse(StreamingResponse):
+    """Stream an authorized open file, closing even on disconnect or send failure."""
+
+    def __init__(self, file: BinaryIO, *, filename: str, media_type: str) -> None:
+        self.file = file
+        super().__init__(
+            iter(lambda: file.read(64 * 1024), b""),
+            media_type=media_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    async def __call__(self, scope, receive, send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self.file.close()
 
 
 @app.get("/api/jobs/{job_id}/download/json")
-def download_json(job_id: str) -> FileResponse:
+def download_json(job_id: str, owner_id: Owner, jobs: Jobs) -> DownloadResponse:
     try:
-        path = _jobs.output_path(job_id, "json")
+        file = jobs.open_output(job_id, "json", owner_id=owner_id)
     except JobError as exc:
         raise HTTPException(404, str(exc)) from exc
-    return FileResponse(path, filename=f"{job_id}-transcript.json", media_type="application/json")
+    return DownloadResponse(file, filename=f"{job_id}-transcript.json", media_type="application/json")
 
 
 @app.get("/api/jobs/{job_id}/download/docx")
-def download_docx(job_id: str) -> FileResponse:
+def download_docx(job_id: str, owner_id: Owner, jobs: Jobs) -> DownloadResponse:
     try:
-        path = _jobs.output_path(job_id, "docx")
+        file = jobs.open_output(job_id, "docx", owner_id=owner_id)
     except JobError as exc:
         raise HTTPException(404, str(exc)) from exc
-    return FileResponse(
-        path,
+    return DownloadResponse(
+        file,
         filename=f"{job_id}-transcript.docx",
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )

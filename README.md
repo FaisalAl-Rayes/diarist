@@ -13,8 +13,9 @@ supports (English by default), or let it auto-detect the language.
   [Hardware/backends](#hardwarebackends) below.
 - [pyannote Community-1](https://huggingface.co/pyannote/speaker-diarization-community-1)
   for speaker diarization.
-- No cloud calls beyond the one-time Hugging Face model download; audio and
-  transcripts never leave your own infrastructure.
+- Audio processing and transcript storage stay on your own infrastructure.
+  Authentication uses Clerk; browsers contact Clerk for sign-in and sessions,
+  and the backend retrieves Clerk's public signing keys for verification.
 - No cleanup/rewrite pass (e.g. via a local LLM) yet -- only the raw Whisper
   transcript, grouped into speaker turns.
 
@@ -30,7 +31,7 @@ supports (English by default), or let it auto-detect the language.
 
 ```bash
 cp .env.example .env
-# edit .env and set HF_TOKEN
+# edit .env and set HF_TOKEN, Clerk keys/issuer, and APP_ORIGIN
 
 docker compose up --build
 ```
@@ -103,6 +104,35 @@ pointing at it. On Apple Silicon, add `uv sync --extra mlx` and set
 [Hardware/backends](#hardwarebackends)); otherwise expect CPU speed.
 
 ## Deployment
+
+### Authentication and private data
+
+Users sign up and sign in through Clerk. Next.js forwards the current user's
+session token to FastAPI, which verifies it independently. Every job read,
+list, download, and deletion is scoped to the verified user ID. Client-supplied
+user IDs are not an authorization mechanism. Records created before ownership
+was introduced are deliberately inaccessible; do not assign them to the first
+person who signs up. Back up existing job storage before upgrading.
+
+Set `CLERK_ISSUER_URL` to the exact Clerk instance URL and `APP_ORIGIN` to the
+exact browser-facing origin. For native development, configure the backend's
+`CLERK_AUTHORIZED_PARTIES` with that same origin. The frontend uses
+`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and server-only `CLERK_SECRET_KEY`.
+Use `clerk env pull` in `frontend/` for local keys; never commit secret files.
+See the service READMEs for local commands.
+
+The publishable key is public and is embedded at frontend build time. Set the
+GitHub repository variable `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` for image builds,
+and rebuild the frontend image when switching Clerk instances. Secret keys
+belong only in runtime secrets, never Docker build arguments or public variables.
+
+Before exposing this app publicly, provision a Clerk production instance,
+configure its domain/providers and HTTPS, and replace development keys and
+issuer together. Keep backend ports and job volumes private. This provides
+application-level tenant isolation, not encryption against infrastructure
+administrators. Secure the host, backups, TLS, and storage separately. The
+current disk-backed single-worker queue is intended for one backend process;
+do not run multiple replicas sharing its job directory.
 
 Both images are built and pushed to GHCR by
 [`.github/workflows/build-images.yml`](.github/workflows/build-images.yml) on

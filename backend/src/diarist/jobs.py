@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import queue
+import re
 import shutil
 import threading
 import traceback
@@ -10,7 +11,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, BinaryIO, Literal
 
 from .audio import AudioError
 from .languages import is_supported
@@ -23,6 +24,7 @@ logger = logging.getLogger("diarist.jobs")
 JobStatus = Literal["queued", "processing", "completed", "failed"]
 
 JOB_FILE = "job.json"
+DELETED_FILE = ".deleted"
 INPUT_DIR = "input"
 OUTPUT_DIR = "output"
 TRANSCRIPT_JSON = "transcript.json"
@@ -43,6 +45,7 @@ class JobOptions:
 @dataclass
 class JobRecord:
     id: str
+    owner_id: str
     original_filename: str
     status: JobStatus
     created_at: str
@@ -56,6 +59,7 @@ class JobRecord:
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
+            "owner_id": self.owner_id,
             "original_filename": self.original_filename,
             "status": self.status,
             "created_at": self.created_at,
@@ -76,6 +80,7 @@ class JobRecord:
         options = data.get("options") or {}
         return cls(
             id=str(data["id"]),
+            owner_id=data.get("owner_id", ""),
             original_filename=str(data["original_filename"]),
             status=data["status"],
             created_at=str(data["created_at"]),
@@ -106,10 +111,12 @@ class JobManager:
     """
 
     def __init__(self, data_dir: Path, engine: TranscriptionEngine) -> None:
-        self.data_dir = data_dir
+        self.data_dir = data_dir.resolve()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.engine = engine
         self._lock = threading.Lock()
+        self._active: set[str] = set()
+        self._deleted: set[str] = set()
         self._queue: queue.Queue[str] = queue.Queue()
         self._worker = threading.Thread(target=self._run_worker, daemon=True)
         self._resume_pending_jobs()
@@ -118,10 +125,27 @@ class JobManager:
     # -- paths -----------------------------------------------------------
 
     def _job_dir(self, job_id: str) -> Path:
-        return self.data_dir / job_id
+        if not re.fullmatch(r"\d{8}T\d{6}Z-[0-9a-f]{8}", job_id):
+            raise JobError("Job not found")
+        return self._safe_path(self.data_dir / job_id)
+
+    def _safe_path(self, path: Path) -> Path:
+        """Reject symlinks at every component, even ones pointing within storage."""
+        try:
+            relative = path.relative_to(self.data_dir)
+            current = self.data_dir
+            for part in relative.parts:
+                current = current / part
+                if current.is_symlink():
+                    raise JobError("Job not found")
+            if not path.resolve().is_relative_to(self.data_dir):
+                raise JobError("Job not found")
+        except (OSError, ValueError) as exc:
+            raise JobError("Job not found") from exc
+        return path
 
     def _job_file(self, job_id: str) -> Path:
-        return self._job_dir(job_id) / JOB_FILE
+        return self._safe_path(self._job_dir(job_id) / JOB_FILE)
 
     # -- persistence -------------------------------------------------------
 
@@ -134,9 +158,14 @@ class JobManager:
     def _read_record(self, job_id: str) -> JobRecord:
         path = self._job_file(job_id)
         try:
-            return JobRecord.from_dict(json.loads(path.read_text("utf-8")))
-        except FileNotFoundError as exc:
-            raise JobError(f"Job not found: {job_id}") from exc
+            if self._safe_path(path.parent / DELETED_FILE).exists():
+                raise JobError("Job not found")
+            record = JobRecord.from_dict(json.loads(path.read_text("utf-8")))
+            if record.id != job_id or job_id in self._deleted:
+                raise JobError("Job not found")
+            return record
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise JobError("Job not found") from exc
 
     def _iter_job_dirs(self) -> list[Path]:
         """List job directories, tolerating filesystem cruft.
@@ -152,11 +181,13 @@ class JobManager:
             if entry.name == "lost+found":
                 continue
             try:
+                self._job_dir(entry.name)
                 if not entry.is_dir():
                     continue
                 if not (entry / JOB_FILE).exists():
                     continue
-            except OSError:
+                self._read_record(entry.name)
+            except (OSError, JobError):
                 logger.warning("Skipping unreadable entry in %s: %s", self.data_dir, entry.name)
                 continue
             job_dirs.append(entry)
@@ -166,9 +197,22 @@ class JobManager:
         """Re-enqueue jobs left queued/processing by an earlier pod."""
         if not self.data_dir.exists():
             return
+        # A crash after deleting an active job must not resume it. Finish the
+        # deferred removal before scanning resumable records.
+        for entry in self.data_dir.iterdir():
+            try:
+                job_dir = self._job_dir(entry.name)
+                if self._safe_path(job_dir / DELETED_FILE).is_file():
+                    shutil.rmtree(job_dir)
+            except (JobError, OSError):
+                continue
         for job_dir in self._iter_job_dirs():
             record = self._read_record(job_dir.name)
-            if record.status in ("queued", "processing"):
+            if (
+                isinstance(record.owner_id, str)
+                and record.owner_id.strip()
+                and record.status in ("queued", "processing")
+            ):
                 record.status = "queued"
                 self._write_record(record)
                 self._queue.put(record.id)
@@ -179,12 +223,15 @@ class JobManager:
     def create_job(
         self,
         *,
+        owner_id: str,
         filename: str,
         content: bytes,
         language: str | None,
         speakers: int | None,
         initial_prompt: str | None,
     ) -> JobRecord:
+        if not isinstance(owner_id, str) or not owner_id.strip():
+            raise JobError("Owner is required")
         if language is not None and not is_supported(language):
             raise JobError(f"Unsupported language code: {language!r}")
         suffix = Path(filename).suffix.lower()
@@ -200,6 +247,7 @@ class JobManager:
 
         record = JobRecord(
             id=job_id,
+            owner_id=owner_id,
             original_filename=filename,
             status="queued",
             created_at=_now(),
@@ -209,30 +257,62 @@ class JobManager:
         self._queue.put(job_id)
         return record
 
-    def get_job(self, job_id: str) -> JobRecord:
-        with self._lock:
-            return self._read_record(job_id)
+    def _owned_record(self, job_id: str, owner_id: str) -> JobRecord:
+        record = self._read_record(job_id)
+        if not owner_id or not record.owner_id or record.owner_id != owner_id:
+            raise JobError("Job not found")
+        return record
 
-    def list_jobs(self) -> list[JobRecord]:
+    def get_job(self, job_id: str, *, owner_id: str) -> JobRecord:
+        with self._lock:
+            return self._owned_record(job_id, owner_id)
+
+    def list_jobs(self, *, owner_id: str) -> list[JobRecord]:
         if not self.data_dir.exists():
             return []
         with self._lock:
             records = [self._read_record(job_dir.name) for job_dir in self._iter_job_dirs()]
-        return sorted(records, key=lambda record: record.created_at, reverse=True)
+        return sorted(
+            [record for record in records if record.owner_id and record.owner_id == owner_id],
+            key=lambda record: record.created_at,
+            reverse=True,
+        )
 
-    def output_path(self, job_id: str, kind: Literal["json", "docx"]) -> Path:
+    def _owned_output_path(
+        self, job_id: str, kind: Literal["json", "docx"], owner_id: str
+    ) -> Path:
+        self._owned_record(job_id, owner_id)
         name = TRANSCRIPT_JSON if kind == "json" else TRANSCRIPT_DOCX
-        path = self._job_dir(job_id) / OUTPUT_DIR / name
+        path = self._safe_path(self._job_dir(job_id) / OUTPUT_DIR / name)
         if not path.exists():
-            raise JobError(f"No {kind} output for job {job_id} (is it completed?)")
+            raise JobError("Job not found")
         return path
 
-    def delete_job(self, job_id: str) -> None:
+    def output_path(self, job_id: str, kind: Literal["json", "docx"], *, owner_id: str) -> Path:
         with self._lock:
+            return self._owned_output_path(job_id, kind, owner_id)
+
+    def open_output(self, job_id: str, kind: Literal["json", "docx"], *, owner_id: str) -> BinaryIO:
+        """Authorize and open atomically with deletion; the caller must close the handle."""
+        with self._lock:
+            path = self._owned_output_path(job_id, kind, owner_id)
+            try:
+                return path.open("rb")
+            except OSError as exc:
+                raise JobError("Job not found") from exc
+
+    def delete_job(self, job_id: str, *, owner_id: str) -> None:
+        with self._lock:
+            self._owned_record(job_id, owner_id)
             job_dir = self._job_dir(job_id)
             if not job_dir.exists():
-                raise JobError(f"Job not found: {job_id}")
-            shutil.rmtree(job_dir)
+                raise JobError("Job not found")
+            if job_id in self._active:
+                # Hide immediately; defer physical removal until the engine stops writing.
+                self._safe_path(job_dir / DELETED_FILE).touch()
+                self._deleted.add(job_id)
+            else:
+                shutil.rmtree(job_dir)
 
     # -- worker --------------------------------------------------------------
 
@@ -241,28 +321,38 @@ class JobManager:
             job_id = self._queue.get()
             try:
                 self._process_job(job_id)
+            except JobError:
+                pass  # Deleted queued job, or unsafe/missing storage.
             except Exception:
                 logger.exception("Unhandled error processing job %s", job_id)
+                self._fail(job_id, "Transcription failed.")
             finally:
+                with self._lock:
+                    self._active.discard(job_id)
+                    if job_id in self._deleted:
+                        shutil.rmtree(self._job_dir(job_id), ignore_errors=True)
+                        self._deleted.discard(job_id)
                 self._queue.task_done()
 
     def _process_job(self, job_id: str) -> None:
         with self._lock:
             record = self._read_record(job_id)
+            if not record.owner_id:
+                return
+            self._active.add(job_id)
             record.status = "processing"
             record.started_at = _now()
             record.error = None
             self._write_record(record)
-
-        job_dir = self._job_dir(job_id)
-        input_dir = job_dir / INPUT_DIR
-        audio_files = list(input_dir.glob("audio.*"))
+            job_dir = self._job_dir(job_id)
+            input_dir = self._safe_path(job_dir / INPUT_DIR)
+            audio_files = [self._safe_path(path) for path in input_dir.glob("audio.*")]
+            work_dir = self._safe_path(job_dir / "work")
+            work_dir.mkdir(parents=True, exist_ok=True)
         if not audio_files:
             self._fail(job_id, "Input audio file is missing.")
             return
         audio_path = audio_files[0]
-        work_dir = job_dir / "work"
-        work_dir.mkdir(parents=True, exist_ok=True)
 
         try:
             transcript: Transcript = self.engine.transcribe(
@@ -273,23 +363,23 @@ class JobManager:
                 work_dir=work_dir,
             )
         except (AudioError, TranscriptionError) as exc:
-            self._fail(job_id, str(exc))
+            logger.warning("Job %s failed: %s", job_id, exc)
+            self._fail(job_id, "Transcription failed.")
             return
         except Exception as exc:  # noqa: BLE001
             logger.error("Job %s failed: %s\n%s", job_id, exc, traceback.format_exc())
-            self._fail(job_id, f"Unexpected error: {exc}")
+            self._fail(job_id, "Transcription failed.")
             return
         finally:
             shutil.rmtree(work_dir, ignore_errors=True)
 
-        output_dir = job_dir / OUTPUT_DIR
-        json_path = output_dir / TRANSCRIPT_JSON
-        docx_path = output_dir / TRANSCRIPT_DOCX
-        write_json(transcript, json_path)
-        write_docx(transcript, docx_path)
-
         with self._lock:
             record = self._read_record(job_id)
+            output_dir = self._safe_path(job_dir / OUTPUT_DIR)
+            json_path = self._safe_path(output_dir / TRANSCRIPT_JSON)
+            docx_path = self._safe_path(output_dir / TRANSCRIPT_DOCX)
+            write_json(transcript, json_path)
+            write_docx(transcript, docx_path)
             record.status = "completed"
             record.completed_at = _now()
             record.transcript = transcript.to_dict()
@@ -297,7 +387,10 @@ class JobManager:
 
     def _fail(self, job_id: str, message: str) -> None:
         with self._lock:
-            record = self._read_record(job_id)
+            try:
+                record = self._read_record(job_id)
+            except JobError:
+                return
             record.status = "failed"
             record.completed_at = _now()
             record.error = message

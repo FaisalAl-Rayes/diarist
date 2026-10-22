@@ -1,3 +1,5 @@
+import { auth } from "@clerk/nextjs/server";
+import { AccountControls } from "@/components/account-controls";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { JobsTable } from "@/components/jobs-table";
 import { ModeToggle } from "@/components/mode-toggle";
@@ -7,6 +9,7 @@ import type { Job } from "@/lib/types";
 
 
 export default async function HomePage() {
+  await auth.protect();
   const jobs = await backendJson<Job[]>("/api/jobs").catch(() => [] as Job[]);
 
   return (
@@ -22,7 +25,10 @@ export default async function HomePage() {
             </p>
           </div>
         </div>
-        <ModeToggle />
+        <div className="flex shrink-0 items-center gap-2">
+          <ModeToggle />
+          <AccountControls />
+        </div>
       </div>
 
       <Card>

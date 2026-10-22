@@ -1,5 +1,9 @@
 .DS_Store
 .env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
 
 # Scratch directories for manually testing the backend locally (sample
 # input audio, ad-hoc output artifacts). Generated content only; the

@@ -16,6 +16,8 @@ services:
       HF_TOKEN: ${HF_TOKEN:?Set HF_TOKEN in .env -- see backend/.env.example}
       HF_HOME: /data/models
       JOB_DATA_DIR: /data/jobs
+      CLERK_ISSUER_URL: ${CLERK_ISSUER_URL:?Set the Clerk instance issuer URL}
+      CLERK_AUTHORIZED_PARTIES: ${APP_ORIGIN:-http://localhost:3000}
       WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
       WHISPER_DEVICE: ${WHISPER_DEVICE:-auto}
       WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-auto}
@@ -27,9 +29,19 @@ services:
     restart: unless-stopped
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?Set the Clerk publishable key}
     environment:
       BACKEND_URL: http://backend:8000
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?Set the Clerk publishable key}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?Set the Clerk secret key}
+      APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3000}
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+      NEXT_PUBLIC_CLERK_SIGN_UP_URL: /sign-up
+      NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL: /
+      NEXT_PUBLIC_CLERK_SIGN_UP_FALLBACK_REDIRECT_URL: /
     ports:
       - "3000:3000"
     depends_on:
